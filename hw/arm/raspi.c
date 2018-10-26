@@ -32,11 +32,6 @@
 /* Table of Linux board IDs for different Pi versions */
 static const int raspi_boardid[] = {[1] = 0xc42, [2] = 0xc43, [3] = 0xc44};
 
-/* Table of board revisions
- * https://github.com/AndrewFromMelbourne/raspberry_pi_revision/blob/master/README.md
- */
-static const uint32_t raspi_boardrev[] = {[1] = 0x10, [2] = 0xa21041};
-
 typedef struct RasPiState {
     BCM283XState soc;
     MemoryRegion ram;
@@ -192,7 +187,7 @@ static void raspi_init(MachineState *machine, int version)
     memory_region_add_subregion_overlap(get_system_memory(), 0, &s->ram, 0);
 
     /* Setup the SOC */
-    object_property_add_const_link(s->soc, "ram", OBJECT(&s->ram),
+    object_property_add_const_link(OBJECT(&s->soc), "ram", OBJECT(&s->ram),
                                    &error_abort);
 
     object_property_set_int(OBJECT(&s->soc), smp_cpus, "enabled-cpus",
@@ -200,17 +195,12 @@ static void raspi_init(MachineState *machine, int version)
     int board_rev = version == 3 ? 0xa02082 : 0xa21041;
     object_property_set_int(OBJECT(&s->soc), board_rev, "board-rev",
                             &error_abort);
-
-    if (version == 2) {
-        object_property_set_int(s->soc, smp_cpus, "enabled-cpus", &error_abort);
-    }
-
-    object_property_set_bool(s->soc, true, "realized", &error_abort);
+    object_property_set_bool(OBJECT(&s->soc), true, "realized", &error_abort);
 
     /* Create and plug in the SD cards */
     di = drive_get_next(IF_SD);
     blk = di ? blk_by_legacy_dinfo(di) : NULL;
-    bus = qdev_get_child_bus(DEVICE(s->soc), "sd-bus");
+    bus = qdev_get_child_bus(DEVICE(&s->soc), "sd-bus");
     if (bus == NULL) {
         error_report("No SD bus found in SOC object");
         exit(1);
@@ -231,10 +221,15 @@ static void raspi2_init(MachineState *machine)
 
 static void raspi2_machine_init(MachineClass *mc)
 {
-    raspi1_machine_init(mc);
     mc->desc = "Raspberry Pi 2";
     mc->init = raspi2_init;
-    mc->max_cpus = BCM2836_NCPUS;
+    mc->block_default_type = IF_SD;
+    mc->no_parallel = 1;
+    mc->no_floppy = 1;
+    mc->no_cdrom = 1;
+    mc->max_cpus = BCM283X_NCPUS;
+    mc->min_cpus = BCM283X_NCPUS;
+    mc->default_cpus = BCM283X_NCPUS;
     mc->default_ram_size = 1024 * 1024 * 1024;
     mc->ignore_memory_transaction_failures = true;
 };

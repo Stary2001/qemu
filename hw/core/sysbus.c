@@ -283,6 +283,7 @@ static void sysbus_dev_print(Monitor *mon, DeviceState *dev, int indent)
     int i;
 
     for (i = 0; i < s->num_mmio; i++) {
+        hwaddr addr = memory_region_addr(s->mmio[i].memory);
         size = memory_region_size(s->mmio[i].memory);
         monitor_printf(mon, "%*smmio " TARGET_FMT_plx "/" TARGET_FMT_plx "\n",
                        indent, "", s->mmio[i].addr, size);
