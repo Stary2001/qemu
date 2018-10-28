@@ -109,6 +109,30 @@ static void reset_secondary(ARMCPU *cpu, const struct arm_boot_info *info)
     cpu_set_pc(cs, info->smp_loader_start);
 }
 
+static void meme_do_cpu_reset(void *opaque)
+{
+    ARMCPU *cpu = opaque;
+    CPUState *cs = CPU(cpu);
+    CPUARMState *env = &cpu->env;
+    const struct arm_boot_info *info = env->boot_info;
+
+    cpu_reset(cs);
+    if (info) {
+        if (!info->is_linux) {
+            if (cs == first_cpu) {
+                uint64_t entry = info->entry;
+                if (!env->aarch64) {
+                    env->thumb = info->entry & 1;
+                    entry &= 0xfffffffe;
+                }
+                cpu_set_pc(cs, entry);
+            } else {
+                info->secondary_cpu_reset_hook(cpu, info);
+            }
+        }
+    }
+}
+
 static void setup_boot(MachineState *machine, int version, size_t ram_size)
 {
     static struct arm_boot_info binfo;
@@ -157,6 +181,19 @@ static void setup_boot(MachineState *machine, int version, size_t ram_size)
 
         binfo.entry = firmware_addr;
         binfo.firmware_loaded = true;
+
+        // HACK: write secondary boot stuff, because arm_load_kernel doesn't do it if we aren't linux. which is dumb.
+        if (binfo.nb_cpus > 1) {
+            binfo.write_secondary_boot(ARM_CPU(first_cpu), &binfo);
+        }
+        if (binfo.write_board_setup) {
+            binfo.write_board_setup(ARM_CPU(first_cpu), &binfo);
+        }
+        // HACK: also register the boot information into each cpu because arm_load_kernel is dumb etc etc
+        for (CPUState *cs = first_cpu; cs; cs = CPU_NEXT(cs)) {
+            ARM_CPU(cs)->env.boot_info = &binfo;
+        }
+
     } else {
         binfo.kernel_filename = machine->kernel_filename;
         binfo.kernel_cmdline = machine->kernel_cmdline;
@@ -164,6 +201,18 @@ static void setup_boot(MachineState *machine, int version, size_t ram_size)
     }
 
     arm_load_kernel(ARM_CPU(first_cpu), &binfo);
+
+    if(machine->firmware)
+    {
+        // !!! HACK !!!
+        // register a reset hook
+        // this has to come after arm_load_kernel so our hook runs after the default hook
+        // i don't know if hooks run in order, but it works on my machine (tm)
+
+        for (CPUState *cs = first_cpu; cs; cs = CPU_NEXT(cs)) {
+            qemu_register_reset(meme_do_cpu_reset, ARM_CPU(cs));
+        }
+    }
 }
 
 static void raspi_init(MachineState *machine, int version)
